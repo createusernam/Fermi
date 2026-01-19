@@ -142,3 +142,6 @@ package-lock.json
 pnpm-lock.yaml
 build.js
 dependency-graph.svg
+
+# Конфигурационные файлы развертывания (содержат конфиденциальную информацию)
+deploy.config

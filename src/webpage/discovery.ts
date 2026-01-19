@@ -59,7 +59,7 @@ export class Discovery {
 		channelTopic.removeAttribute("hidden");
 		channelTopic.textContent = "";
 		channelTopic.onclick = () => {};
-		if (this.localuser.lookingguild) {
+		if (this.localuser.lookingguild && this.localuser.lookingguild.html) {
 			this.localuser.lookingguild.html.classList.remove("serveropen");
 		}
 

@@ -1181,10 +1181,12 @@ class User extends SnowFlake {
 		}
 
 		userbody.appendChild(badgediv);
-		const discrimatorhtml = document.createElement("h3");
-		discrimatorhtml.classList.add("tag");
-		discrimatorhtml.textContent = `${this.username}#${this.discriminator}`;
-		userbody.appendChild(discrimatorhtml);
+		// Дискриминатор скрыт в интерфейсе (как в новых версиях Discord)
+		// Но остается в базе данных для совместимости с API
+		// const discrimatorhtml = document.createElement("h3");
+		// discrimatorhtml.classList.add("tag");
+		// discrimatorhtml.textContent = `${this.username}#${this.discriminator}`;
+		// userbody.appendChild(discrimatorhtml);
 
 		const pronounshtml = document.createElement("p");
 		pronounshtml.textContent = this.pronouns || "";
@@ -1443,10 +1445,12 @@ class User extends SnowFlake {
 			usernamehtml.appendChild(username);
 		}
 		userbody.appendChild(badgediv);
-		const discrimatorhtml = document.createElement("h3");
-		discrimatorhtml.classList.add("tag");
-		discrimatorhtml.textContent = `${this.username}#${this.discriminator}`;
-		userbody.appendChild(discrimatorhtml);
+		// Дискриминатор скрыт в интерфейсе (как в новых версиях Discord)
+		// Но остается в базе данных для совместимости с API
+		// const discrimatorhtml = document.createElement("h3");
+		// discrimatorhtml.classList.add("tag");
+		// discrimatorhtml.textContent = `${this.username}#${this.discriminator}`;
+		// userbody.appendChild(discrimatorhtml);
 
 		const pronounshtml = document.createElement("p");
 		pronounshtml.textContent = this.pronouns || "";

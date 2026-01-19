@@ -1,0 +1,22 @@
+# Конфигурационный файл для развертывания Fermi Client
+# Скопируйте этот файл в deploy.config и заполните своими данными
+# cp deploy.config.example deploy.config
+# nano deploy.config
+
+# URL репозитория
+GIT_REPO="https://github.com/createusernam/Fermi.git"
+
+# Ветка для развертывания (по умолчанию)
+DEPLOY_BRANCH="vps-spacebar-fermi-test"
+
+# Директория для развертывания
+DEPLOY_DIR="/opt/fermi/Fermi"
+
+# Директория для бэкапов
+BACKUP_DIR="/opt/fermi-backups"
+
+# Имя контейнера
+CONTAINER_NAME="fermi-client"
+
+# Имя Docker образа
+IMAGE_NAME="fermi-client"

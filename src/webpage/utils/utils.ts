@@ -391,7 +391,24 @@ export const instancefetch = fetch("/instances.json")
 			}[],
 		) => {
 			await I18n.done;
-			instances = json;
+			// Фильтруем только локальные инстансы (localhost)
+			// Включаем инстансы, у которых есть URL и он содержит localhost или 127.0.0.1
+			instances = json.filter((instance) => {
+				if (instance.display === false) {
+					return false;
+				}
+				const instanceUrl = instance.url || instance.urls?.api || "";
+				// Если URL есть, проверяем что он локальный
+				if (instanceUrl) {
+					return instanceUrl.includes("localhost") || instanceUrl.includes("127.0.0.1");
+				}
+				// Если URL нет, но есть urls объект, проверяем его api
+				if (instance.urls?.api) {
+					return instance.urls.api.includes("localhost") || instance.urls.api.includes("127.0.0.1");
+				}
+				// Если нет URL вообще, исключаем инстанс
+				return false;
+			});
 		},
 	);
 const stringURLMap = new Map<string, string>();
@@ -458,11 +475,7 @@ export async function getInstanceInfo(str: string): Promise<InstanceInfo | null>
 		stringURLsMap,
 	});
 
-	if (stringURLMap.has(str)) {
-		console.error("OOH WE GOT STRING->URL MAP ENTRY FOR", str, "!!!!", stringURLMap.get(str));
-		return (await getapiurls(stringURLMap.get(str)!)) as InstanceInfo;
-	}
-
+	// Сначала проверяем stringURLsMap, так как там может быть полная информация без необходимости запросов
 	if (stringURLsMap.has(str)) {
 		console.error(
 			"WE GOT URL->INSTANCE MAP ENTRY FOR ",
@@ -470,7 +483,23 @@ export async function getInstanceInfo(str: string): Promise<InstanceInfo | null>
 			"!!!!!!!!!!11",
 			stringURLsMap.get(str),
 		);
-		return stringURLsMap.get(str) as InstanceInfo;
+		const urls = stringURLsMap.get(str) as InstanceInfo;
+		urls.value = str;
+		return urls;
+	}
+
+	// Если не найдено в stringURLsMap, проверяем stringURLMap
+	if (stringURLMap.has(str)) {
+		console.error("OOH WE GOT STRING->URL MAP ENTRY FOR", str, "!!!!", stringURLMap.get(str));
+		const url = stringURLMap.get(str)!;
+		// Проверяем, есть ли уже информация в stringURLsMap для этого URL
+		if (stringURLsMap.has(url)) {
+			const urls = stringURLsMap.get(url) as InstanceInfo;
+			urls.value = str;
+			return urls;
+		}
+		// Если нет, пытаемся загрузить через .well-known
+		return (await getapiurls(url)) as InstanceInfo;
 	}
 
 	return null;

@@ -191,7 +191,9 @@ async function updateInstances(): Promise<void> {
 	}
 }
 
-updateInstances();
+// Отключено: подгрузка списка с GitHub добавляла бы Spacebar, Fastbar и др.
+// Раскомментируйте, если нужен общий список инстансов:
+// updateInstances();
 /*
 app.set("trust proxy", (ip: unknown) => {
 	if (typeof ip !== "string") return false;

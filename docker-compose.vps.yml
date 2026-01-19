@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  fermi-client:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fermi-client
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - spacebar-network
+
+networks:
+  spacebar-network:
+    external: true

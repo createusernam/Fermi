@@ -180,8 +180,10 @@ export class Favorites {
 		const sat = fetch(this.info.api + "/users/@me/settings-proto/2/json", {
 			headers: this.headers,
 		});
-		const res: {settings: Partial<favandfreq>} = await (await sat).json();
-		this.saveDifs(res.settings, save);
+		const res: {settings?: Partial<favandfreq>} = await (await sat).json();
+		if (res.settings) {
+			this.saveDifs(res.settings, save);
+		}
 	}
 	async setup() {
 		try {
@@ -244,6 +246,7 @@ export class Favorites {
 		}
 	}
 	saveDifs(diffs: Partial<favandfreq>, save = true) {
+		if (!diffs) return;
 		const old = this.getOld();
 		if (diffs.favoriteGifs?.gifs) {
 			const oldKeys = new Set(Object.keys(old.favoriteGifs.gifs));

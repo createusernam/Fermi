@@ -300,23 +300,11 @@ class Localuser {
 		const prefs = await getPreferences();
 		const bstate = prefs.showBlogUpdates;
 		if (bstate === undefined) {
-			const pop = new Dialog("");
-			pop.options.addText(I18n.blog.wantUpdates());
-			const opts = pop.options.addOptions("", {ltr: true});
-			opts.addButtonInput("", I18n.yes(), async () => {
-				prefs.showBlogUpdates = true;
-				await setPreferences(prefs);
-				this.queryBlog();
-				pop.hide();
-			});
-			opts.addButtonInput("", I18n.no(), async () => {
-				prefs.showBlogUpdates = false;
-				await setPreferences(prefs);
-				this.queryBlog();
-				pop.hide();
-			});
-			pop.show();
-		} else if (bstate) {
+			// По умолчанию отключаем обновления блога без показа окна
+			prefs.showBlogUpdates = false;
+			await setPreferences(prefs);
+		}
+		if (bstate === true) {
 			const post = (await this.getPosts()).items[0];
 			if (this.perminfo.localuser.mostRecent !== post.url) {
 				this.perminfo.localuser.mostRecent = post.url;
@@ -420,6 +408,31 @@ class Localuser {
 		this.pingEndpoint();
 
 		this.generateFavicon();
+		
+		// Ждем загрузки всех members перед отображением гильдий
+		Promise.all(
+			this.guilds.map((guild) => {
+				if (guild instanceof Guild && !guild.member) {
+					// Ждем загрузки member для каждой гильдии
+					return new Promise<void>((resolve) => {
+						const checkMember = () => {
+							if (guild.member) {
+								resolve();
+							} else {
+								setTimeout(checkMember, 100);
+							}
+						};
+						checkMember();
+						// Таймаут на случай, если member не загрузится
+						setTimeout(() => resolve(), 2000);
+					});
+				}
+				return Promise.resolve();
+			})
+		).then(() => {
+			// Отображаем гильдии в интерфейсе после загрузки всех members
+			this.buildservers();
+		});
 	}
 	inrelation = new Set<User>();
 	outoffocus(): void {
@@ -471,6 +484,13 @@ class Localuser {
 			returny = res;
 			ws.addEventListener("open", (_event) => {
 				console.log("WebSocket connected");
+				// Проверяем наличие токена перед отправкой
+				if (!this.token) {
+					console.error("No token available - redirecting to login");
+					ws.close();
+					window.location.href = "/login";
+					return;
+				}
 				if (resume) {
 					ws.send(
 						JSON.stringify({
@@ -578,6 +598,29 @@ class Localuser {
 		ws.addEventListener("close", async (event) => {
 			this.ws = undefined;
 			console.log("WebSocket closed with code " + event.code);
+			// Код 4000 обычно означает ошибку аутентификации (Invalid Token)
+			// При первой ошибке пробуем переподключиться, при повторной - очищаем токен
+			if (event.code === 4000) {
+				if (this.errorBackoff >= 1) {
+					// Если уже была попытка переподключения, токен точно невалидный
+					console.error("Token invalid after retry - clearing and redirecting to login");
+					// Очищаем токен из localStorage
+					const userinfos = JSON.parse(localStorage.getItem("userinfos") || "{}");
+					if (userinfos.users && userinfos.users[this.userinfo.uid]) {
+						delete userinfos.users[this.userinfo.uid].token;
+						localStorage.setItem("userinfos", JSON.stringify(userinfos));
+					}
+					// Перенаправляем на страницу логина
+					window.location.href = "/login";
+					return;
+				}
+				// При первой ошибке 4000 пробуем переподключиться один раз
+				this.errorBackoff++;
+				this.initwebsocket(true).then(() => {
+					this.loaduser();
+				});
+				return;
+			}
 			if (
 				(event.code > 1000 && event.code < 1016 && this.errorBackoff === 0) ||
 				(wsCodesRetry.has(event.code) && this.errorBackoff === 0)
@@ -615,33 +658,60 @@ class Localuser {
 					this.errorBackoff //try to recover from bad domain
 				) {
 					case 3:
-						const newurls = await getapiurls(this.info.wellknown);
-						if (newurls) {
-							this.info = newurls;
-							this.serverurls = newurls;
-							this.userinfo.json.serverurls = this.info;
+						if (!this.info.wellknown) {
+							console.warn("[WARN] wellknown is undefined, skipping case 3");
 							break;
+						}
+						try {
+							const newurls = await getapiurls(this.info.wellknown);
+							if (newurls) {
+								this.info = newurls;
+								this.serverurls = newurls;
+								this.userinfo.json.serverurls = this.info;
+								break;
+							}
+						} catch (error) {
+							console.error("[ERROR] Failed to process wellknown URL in case 3:", this.info.wellknown, error);
 						}
 						break;
 
 					case 4: {
-						const newurls = await getapiurls(new URL(this.info.wellknown).origin);
-						if (newurls) {
-							this.info = newurls;
-							this.serverurls = newurls;
-							this.userinfo.json.serverurls = this.info;
+						if (!this.info.wellknown) {
+							console.warn("[WARN] wellknown is undefined, skipping case 4");
 							break;
+						}
+						try {
+							const newurls = await getapiurls(new URL(this.info.wellknown).origin);
+							if (newurls) {
+								this.info = newurls;
+								this.serverurls = newurls;
+								this.userinfo.json.serverurls = this.info;
+							}
+						} catch (error) {
+							console.error("[ERROR] Failed to process wellknown URL in case 4:", this.info.wellknown, error);
 						}
 						break;
 					}
 					case 5: {
-						const breakappart = new URL(this.info.wellknown).host.split(".");
-						const url = "https://" + breakappart.at(-2) + "." + breakappart.at(-1);
-						const newurls = await getapiurls(url);
-						if (newurls) {
-							this.info = newurls;
-							this.serverurls = newurls;
-							this.userinfo.json.serverurls = this.info;
+						if (!this.info.wellknown) {
+							console.warn("[WARN] wellknown is undefined, skipping case 5");
+							break;
+						}
+						try {
+							const breakappart = new URL(this.info.wellknown).host.split(".");
+							if (breakappart.length < 2) {
+								console.warn("[WARN] Invalid host format:", this.info.wellknown);
+								break;
+							}
+							const url = "https://" + breakappart.at(-2) + "." + breakappart.at(-1);
+							const newurls = await getapiurls(url);
+							if (newurls) {
+								this.info = newurls;
+								this.serverurls = newurls;
+								this.userinfo.json.serverurls = this.info;
+							}
+						} catch (error) {
+							console.error("[ERROR] Failed to process wellknown URL:", this.info.wellknown, error);
 						}
 						break;
 					}
@@ -892,8 +962,11 @@ class Localuser {
 					break;
 				}
 				case "VOICE_SERVER_UPDATE":
+					console.log("[Localuser] VOICE_SERVER_UPDATE event received:", temp);
 					if (this.voiceFactory) {
 						this.voiceFactory.voiceServerUpdate(temp);
+					} else {
+						console.warn("[Localuser] VOICE_SERVER_UPDATE: voiceFactory is not initialized");
 					}
 					break;
 				case "GUILD_ROLE_CREATE": {
@@ -1505,7 +1578,8 @@ class Localuser {
 	}
 	init(): void {
 		const location = window.location.href.split("/");
-		this.buildservers();
+		// buildservers() вызывается в gottenReady() после загрузки всех данных
+		// Не вызываем здесь, чтобы избежать дублирования
 		if (location[3] === "channels") {
 			const guild = this.loadGuild(location[4]);
 			if (!guild) {
@@ -1884,6 +1958,11 @@ class Localuser {
 	)[] = [];
 	buildservers(): void {
 		const serverlist = document.getElementById("servers") as HTMLDivElement; //
+		if (!serverlist) {
+			return;
+		}
+		// Очищаем содержимое перед добавлением новых элементов, чтобы избежать дублирования
+		serverlist.innerHTML = "";
 		const outdiv = document.createElement("div");
 		const home: any = document.createElement("span");
 		const div = document.createElement("div");
@@ -1910,9 +1989,12 @@ class Localuser {
 		serverlist.append(sentdms);
 		sentdms.id = "sentdms";
 
+		// Создаем separator ДО добавления гильдий, чтобы можно было вставлять перед ним
 		const br = document.createElement("hr");
 		br.classList.add("lightbr");
+		br.id = "bottomseparator";
 		serverlist.appendChild(br);
+		
 		const guilds = new Set(this.guilds);
 		const dirrect = this.guilds.find((_) => _ instanceof Direct) as Direct;
 
@@ -1955,20 +2037,30 @@ class Localuser {
 			});
 		const guildOrder = [...guilds, ...folders];
 		this.guildOrder = guildOrder;
+		
+		// Получаем separator один раз перед циклом
+		const separator = document.getElementById("bottomseparator");
+		
 		for (const thing of guildOrder) {
 			if (thing instanceof Guild) {
-				serverlist.append(this.makeGuildIcon(thing));
+				const icon = this.makeGuildIcon(thing);
+				// Вставляем гильдии перед separator
+				if (separator && separator.parentElement === serverlist) {
+					serverlist.insertBefore(icon, separator);
+				} else {
+					serverlist.append(icon);
+				}
 			} else {
 				const folderDiv = this.makeFolder(thing);
-				serverlist.append(folderDiv);
+				const separator = document.getElementById("bottomseparator");
+				if (separator && separator.parentElement === serverlist) {
+					serverlist.insertBefore(folderDiv, separator);
+				} else {
+					serverlist.append(folderDiv);
+				}
 			}
 		}
-
 		{
-			const br = document.createElement("hr");
-			br.classList.add("lightbr");
-			serverlist.appendChild(br);
-			br.id = "bottomseparator";
 
 			const div = document.createElement("div");
 			const plus = document.createElement("span");
@@ -2023,15 +2115,70 @@ class Localuser {
 		const guildcreate = buttons.add(I18n.guild.create());
 		{
 			const form = guildcreate.addForm("", (fields: any) => {
-				this.makeGuild(fields).then((_) => {
-					if (_.message) {
+				this.makeGuild(fields).then((guildData: any) => {
+					if (guildData.message || guildData.errors) {
 						loading.hide();
 						full.show();
-						alert(_.errors.name._errors[0].message);
+						if (guildData.errors?.name?._errors?.[0]?.message) {
+							alert(guildData.errors.name._errors[0].message);
+						} else {
+							alert(guildData.message || "Ошибка при создании сервера");
+						}
+					} else if (guildData.id) {
+						// Гильдия успешно создана, добавляем её в список вручную
+						// если событие GUILD_CREATE не придет через WebSocket
+						setTimeout(async () => {
+							// Проверяем, не добавилась ли гильдия уже через WebSocket
+							if (!this.guildids.has(guildData.id)) {
+								try {
+									// Загружаем полную информацию о гильдии с каналами и ролями
+									const fullGuildData = await (
+										await fetch(this.info.api + `/guilds/${guildData.id}?with_counts=true`, {
+											headers: this.headers,
+										})
+									).json();
+									
+									// Добавляем гильдию вручную
+									const guildy = new Guild(fullGuildData, this, this.user);
+									this.guilds.push(guildy);
+									this.guildids.set(guildy.id, guildy);
+									const divy = guildy.generateGuildIcon();
+									guildy.HTMLicon = divy;
+									const serversDiv = document.getElementById("servers") as HTMLDivElement;
+									const bottomSeparator = document.getElementById("bottomseparator");
+									if (serversDiv && bottomSeparator) {
+										serversDiv.insertBefore(divy, bottomSeparator);
+									}
+									guildy.message_notifications = guildy.properties.default_message_notifications;
+								} catch (error) {
+									console.error("Ошибка при загрузке гильдии:", error);
+									// Если не удалось загрузить, пробуем использовать данные, которые вернул сервер
+									if (guildData.properties || guildData.channels) {
+										const guildy = new Guild(guildData, this, this.user);
+										this.guilds.push(guildy);
+										this.guildids.set(guildy.id, guildy);
+										const divy = guildy.generateGuildIcon();
+										guildy.HTMLicon = divy;
+										const serversDiv = document.getElementById("servers") as HTMLDivElement;
+										const bottomSeparator = document.getElementById("bottomseparator");
+										if (serversDiv && bottomSeparator) {
+											serversDiv.insertBefore(divy, bottomSeparator);
+										}
+										guildy.message_notifications = guildy.properties?.default_message_notifications || 0;
+									}
+								}
+							}
+						}, 1000);
+						loading.hide();
+						full.hide();
 					} else {
 						loading.hide();
 						full.hide();
 					}
+				}).catch((error) => {
+					loading.hide();
+					full.show();
+					alert("Ошибка при создании сервера: " + (error.message || error));
 				});
 			});
 			form.addImageInput(I18n.guild["icon:"](), "icon", {

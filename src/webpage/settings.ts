@@ -1001,6 +1001,11 @@ class InstancePicker implements OptionsElement<InstanceInfo | null> {
 			if (instance.display === false) {
 				continue;
 			}
+			// Показывать только локальные инстансы (localhost)
+			const instanceUrl = instance.url || instance.urls?.api || "";
+			if (instanceUrl && !instanceUrl.includes("localhost") && !instanceUrl.includes("127.0.0.1")) {
+				continue;
+			}
 			const option = document.createElement("option");
 			option.disabled = !instance.online;
 			option.value = instance.name;
@@ -1008,9 +1013,28 @@ class InstancePicker implements OptionsElement<InstanceInfo | null> {
 				stringURLMap.set(option.value, instance.url);
 				if (instance.urls) {
 					stringURLsMap.set(instance.url, instance.urls);
+					// Также добавляем по имени для быстрого доступа
+					stringURLsMap.set(option.value, instance.urls);
+				} else {
+					// Если есть url, но нет urls, строим urls на основе url
+					const baseUrl = instance.url.endsWith("/") ? instance.url.slice(0, -1) : instance.url;
+					const constructedUrls = {
+						wellknown: baseUrl,
+						api: baseUrl + "/api/v9",
+						cdn: baseUrl,
+						gateway: baseUrl.replace("http://", "ws://").replace("https://", "wss://"),
+					};
+					stringURLsMap.set(instance.url, constructedUrls);
+					stringURLsMap.set(option.value, constructedUrls);
 				}
 			} else if (instance.urls) {
+				// Если есть urls, но нет url, используем wellknown или api как ключ
+				const urlKey = instance.urls.wellknown || instance.urls.api || option.value;
 				stringURLsMap.set(option.value, instance.urls);
+				// Также добавляем в stringURLMap для совместимости
+				if (instance.urls.api) {
+					stringURLMap.set(option.value, urlKey);
+				}
 			} else {
 				option.disabled = true;
 			}

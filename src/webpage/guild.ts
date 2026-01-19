@@ -1655,6 +1655,10 @@ class Guild extends SnowFlake {
 		}
 		let read = true;
 		let mentions = this.mentions;
+		// Проверяем, что member загружен перед проверкой каналов
+		if (!this.member) {
+			return {read: true, mentions: 0};
+		}
 		for (const thing of this.channels) {
 			if (thing.hasunreads) {
 				read = false;

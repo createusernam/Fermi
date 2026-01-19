@@ -275,8 +275,26 @@ class VoiceFactory {
 		this.guildUrlMap.set(id, obj as {geturl: Promise<void>; gotUrl: () => void});
 	}
 	voiceServerUpdate(update: voiceserverupdate) {
-		const obj = this.guildUrlMap.get(update.d.guild_id);
-		if (!obj) return;
+		console.log("[Voice] VOICE_SERVER_UPDATE received:", update);
+		const guildId = update.d.guild_id;
+		if (!guildId) {
+			console.warn("[Voice] VOICE_SERVER_UPDATE: guild_id is null/undefined");
+			return;
+		}
+		const obj = this.guildUrlMap.get(guildId);
+		if (!obj) {
+			console.warn("[Voice] VOICE_SERVER_UPDATE: guildUrlMap entry not found for guild_id:", guildId, "Available guilds:", Array.from(this.guildUrlMap.keys()));
+			// Создаем объект, если его нет (может быть race condition)
+			this.setUpGuild(guildId);
+			const newObj = this.guildUrlMap.get(guildId);
+			if (newObj) {
+				newObj.url = update.d.endpoint;
+				newObj.token = update.d.token;
+				newObj.gotUrl();
+			}
+			return;
+		}
+		console.log("[Voice] Setting URL and token for guild:", guildId, "endpoint:", update.d.endpoint);
 		obj.url = update.d.endpoint;
 		obj.token = update.d.token;
 		obj.gotUrl();
@@ -688,11 +706,25 @@ a=rtcp-mux\r`;
 			});
 			pc.addEventListener("connectionstatechange", async () => {
 				logState("connectionstatechange", pc.connectionState);
+				console.log("[Voice] Connection state changed to:", pc.connectionState);
 				detectDone();
 				if (pc.connectionState === "connecting") {
 					//logState("update2", "start Set local desc");
 					//await pc.setLocalDescription();
 					//logState("update2", "Set local desc");
+				}
+				if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+					console.error("[Voice] Connection failed or disconnected! State:", pc.connectionState);
+					console.error("[Voice] ICE connection state:", pc.iceConnectionState);
+					console.error("[Voice] Signaling state:", pc.signalingState);
+					// Попытка переподключения
+					try {
+						console.log("[Voice] Attempting to restart ICE...");
+						await pc.restartIce();
+						console.log("[Voice] ICE restart initiated");
+					} catch (error) {
+						console.error("[Voice] Failed to restart ICE:", error);
+					}
 				}
 			});
 			pc.addEventListener("icegatheringstatechange", async () => {
@@ -708,10 +740,23 @@ a=rtcp-mux\r`;
 			});
 			pc.addEventListener("iceconnectionstatechange", async () => {
 				logState("iceconnectionstatechange", pc.iceConnectionState);
+				console.log("[Voice] ICE connection state changed to:", pc.iceConnectionState);
 
 				detectDone();
 				if (pc.iceConnectionState === "checking") {
 					await sendOffer();
+				}
+				if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
+					console.error("[Voice] ICE connection failed! State:", pc.iceConnectionState);
+					console.error("[Voice] Connection state:", pc.connectionState);
+					// Попытка переподключения
+					try {
+						console.log("[Voice] Attempting to restart ICE...");
+						await pc.restartIce();
+						console.log("[Voice] ICE restart initiated");
+					} catch (error) {
+						console.error("[Voice] Failed to restart ICE:", error);
+					}
 				}
 			});
 		}
@@ -801,14 +846,22 @@ a=rtcp-mux\r`;
 	ssrcMap: Map<RTCRtpSender, number> = new Map();
 	speaking = false;
 	async setupMic(audioStream: MediaStream) {
-		const audioContext = new AudioContext();
-		const analyser = audioContext.createAnalyser();
-		const microphone = audioContext.createMediaStreamSource(audioStream);
+		try {
+			const audioContext = new AudioContext();
+			console.log("[Voice] setupMic: AudioContext created:", audioContext.state);
+			const analyser = audioContext.createAnalyser();
+			const microphone = audioContext.createMediaStreamSource(audioStream);
 
-		analyser.smoothingTimeConstant = 0;
-		analyser.fftSize = 32;
+			analyser.smoothingTimeConstant = 0;
+			analyser.fftSize = 32;
 
-		microphone.connect(analyser);
+			microphone.connect(analyser);
+			console.log("[Voice] setupMic: Microphone connected to analyser");
+		} catch (error: any) {
+			console.error("[Voice] setupMic error:", error);
+			console.error("[Voice] setupMic error name:", error?.name, "message:", error?.message);
+			// Продолжаем без анализатора - это не критично для работы голосовой связи
+		}
 		const array = new Float32Array(1);
 		const interval = setInterval(() => {
 			if (!this.ws) {
@@ -880,6 +933,83 @@ a=rtcp-mux\r`;
 			}
 		}
 		console.log(this.reciverMap);
+	}
+	async checkTrackStats(receiver: RTCRtpReceiver, track: MediaStreamTrack) {
+		if (!this.pc) return;
+		
+		try {
+			const stats = await receiver.getStats();
+			let audioStats: any = null;
+			let transportStats: any = null;
+			
+			// Логируем все доступные статистики для отладки
+			const allStats: any[] = [];
+			for (const [id, stat] of stats.entries()) {
+				allStats.push({ id, type: stat.type, kind: stat.kind });
+				if (stat.type === "inbound-rtp" && stat.kind === "audio") {
+					audioStats = stat;
+				}
+				if (stat.type === "transport") {
+					transportStats = stat;
+				}
+			}
+			const statsTypes = allStats.map(s => `${s.type}${s.kind ? ` (${s.kind})` : ''}`).join(', ');
+			console.log("[Voice] Available stats types:", statsTypes || "(none)");
+			console.log("[Voice] Total stats entries:", stats.size);
+			if (stats.size === 0) {
+				console.warn("[Voice] ⚠️ No stats available yet - connection may still be establishing");
+			}
+			
+			console.log("[Voice] Track stats:", {
+				muted: track.muted,
+				enabled: track.enabled,
+				readyState: track.readyState,
+				connectionState: this.pc.connectionState,
+				iceConnectionState: this.pc.iceConnectionState,
+				audioStats: audioStats ? {
+					bytesReceived: audioStats.bytesReceived,
+					packetsReceived: audioStats.packetsReceived,
+					packetsLost: audioStats.packetsLost,
+					jitter: audioStats.jitter,
+					audioLevel: audioStats.audioLevel,
+					totalSamplesReceived: audioStats.totalSamplesReceived,
+					totalSamplesDuration: audioStats.totalSamplesDuration
+				} : null,
+				transportStats: transportStats ? {
+					bytesReceived: transportStats.bytesReceived,
+					bytesSent: transportStats.bytesSent,
+					selectedCandidatePairId: transportStats.selectedCandidatePairId
+				} : null
+			});
+			
+			// Проверяем, растет ли bytesReceived (данные приходят)
+			if (audioStats && audioStats.bytesReceived > 0) {
+				console.log(`[Voice] ✅ Audio data is being received: ${audioStats.bytesReceived} bytes, ${audioStats.packetsReceived} packets`);
+				if (audioStats.audioLevel !== undefined) {
+					console.log(`[Voice] Audio level: ${audioStats.audioLevel} (0-1 scale)`);
+				}
+			} else {
+				console.warn("[Voice] ⚠️ No audio data received yet - check if sender is transmitting");
+				if (!audioStats) {
+					console.warn("[Voice] audioStats is null/undefined - this may indicate the track is not receiving RTP packets");
+					console.warn("[Voice] Check if sender has microphone enabled and is transmitting audio");
+				} else if (audioStats.bytesReceived === 0) {
+					console.warn("[Voice] bytesReceived is 0 - no RTP packets received yet");
+					console.warn("[Voice] This may be normal if the sender is muted or not speaking");
+				}
+			}
+			
+			if (track.muted && audioStats) {
+				if (audioStats.bytesReceived === 0 || audioStats.packetsReceived === 0) {
+					console.warn("[Voice] Track is muted because no data is being received!");
+					console.warn("[Voice] This may indicate a connection issue or the sender is not transmitting.");
+				} else {
+					console.warn("[Voice] Track is muted but data is being received - this may be a browser bug or codec issue.");
+				}
+			}
+		} catch (error) {
+			console.error("[Voice] Failed to get track stats:", error);
+		}
 	}
 	updateMute() {
 		if (!this.micTrack) return;
@@ -1021,32 +1151,216 @@ a=rtcp-mux\r`;
 				return;
 			}
 
-			console.log("got audio:", e);
+			console.log("[Voice] got audio track from user:", userId, "track:", e.track);
 			for (const track of media.getTracks()) {
-				console.log(track);
+				console.log("[Voice] Track details:", {
+					kind: track.kind,
+					id: track.id,
+					enabled: track.enabled,
+					muted: track.muted,
+					readyState: track.readyState
+				});
+				// Если трек помечен как muted, пытаемся его размутить
+				if (track.kind === "audio" && track.muted) {
+					console.warn("[Voice] Audio track is muted! Attempting to unmute...");
+					track.enabled = true;
+					// Слушаем изменения состояния muted
+					track.addEventListener("unmute", () => {
+						console.log("[Voice] Audio track unmuted!");
+					});
+				}
 			}
 
-			const context = new AudioContext();
-			console.log(context);
-			await context.resume();
-			const ss = context.createMediaStreamSource(media);
-			console.log(media, ss);
-			new Audio().srcObject = media; //weird I know, but it's for chromium/webkit bug
-			ss.connect(context.destination);
-			this.recivers.add(e.receiver);
-			console.log(this.recivers);
+			try {
+				const context = new AudioContext();
+				console.log("[Voice] AudioContext created:", context.state);
+				
+				// Resume AudioContext (может требовать user gesture)
+				try {
+					if (context.state === "suspended") {
+						await context.resume();
+						console.log("[Voice] AudioContext resumed:", context.state);
+					}
+				} catch (resumeError: any) {
+					console.warn("[Voice] AudioContext.resume() failed (may need user interaction):", resumeError);
+					// Продолжаем - возможно контекст уже активен или активируется автоматически
+				}
+				
+				const ss = context.createMediaStreamSource(media);
+				console.log("[Voice] MediaStreamSource created for user:", userId);
+				
+				// Создаем Audio элемент для воспроизведения (для совместимости с Chromium/WebKit)
+				const audioElement = new Audio();
+				audioElement.srcObject = media;
+				audioElement.autoplay = true;
+				
+				// Пытаемся воспроизвести (может требовать user gesture)
+				audioElement.play().then(() => {
+					console.log("[Voice] Audio element playing successfully");
+				}).catch((playError: any) => {
+					console.warn("[Voice] Audio element play() failed (may need user interaction):", playError);
+					// Продолжаем - MediaStreamSource может работать без Audio элемента
+				});
+				
+				ss.connect(context.destination);
+				this.recivers.add(e.receiver);
+				console.log("[Voice] Audio connected to destination, receivers count:", this.recivers.size);
+				
+				// Проверяем состояние соединения и статистику
+				if (this.pc) {
+					console.log("[Voice] Connection state:", this.pc.connectionState);
+					console.log("[Voice] ICE connection state:", this.pc.iceConnectionState);
+					
+					// Мониторим изменения muted состояния
+					e.track.addEventListener("mute", () => {
+						console.warn("[Voice] Track became muted! Checking connection...");
+						this.checkTrackStats(e.receiver, e.track);
+					});
+					e.track.addEventListener("unmute", () => {
+						console.log("[Voice] Track unmuted!");
+					});
+					
+					// Проверяем статистику через небольшую задержку (после установки соединения)
+					// Увеличиваем задержку, так как статистика может быть не готова сразу
+					setTimeout(() => {
+						this.checkTrackStats(e.receiver, e.track);
+					}, 3000);
+					// Проверяем еще раз через 5 секунд для более точной статистики
+					setTimeout(() => {
+						this.checkTrackStats(e.receiver, e.track);
+					}, 5000);
+				}
+			} catch (error: any) {
+				console.error("[Voice] Error processing incoming audio:", error);
+				console.error("[Voice] Error name:", error?.name, "message:", error?.message);
+			}
 		};
 		if (!this.settings.stream) {
-			const audioStream = await navigator.mediaDevices.getUserMedia({video: false, audio: true});
-			const [track] = audioStream.getAudioTracks();
-			this.setupMic(audioStream);
-			const sender = pc.addTrack(track);
+			try {
+				console.log("[Voice] Requesting microphone access...");
+				
+				// Проверяем доступность mediaDevices API
+				if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+					throw new Error("getUserMedia is not available in this browser");
+				}
+				
+				// Проверяем доступные устройства
+				try {
+					const devices = await navigator.mediaDevices.enumerateDevices();
+					const audioInputs = devices.filter(d => d.kind === 'audioinput');
+					console.log("[Voice] Available audio input devices:", audioInputs.length);
+					if (audioInputs.length === 0) {
+						console.warn("[Voice] ⚠️ No audio input devices found in system!");
+					} else {
+						console.log("[Voice] Audio devices:", audioInputs.map(d => `${d.label || 'Unknown'} (${d.deviceId.substring(0, 8)}...)`).join(', '));
+					}
+				} catch (enumError) {
+					console.warn("[Voice] Could not enumerate devices (may need permission first):", enumError);
+				}
+				
+				// Пробуем получить доступ к микрофону с разными настройками
+				let audioStream: MediaStream | null = null;
+				let lastError: any = null;
+				
+				// Сначала пробуем без указания устройства (default)
+				try {
+					audioStream = await navigator.mediaDevices.getUserMedia({video: false, audio: true});
+					console.log("[Voice] Successfully got microphone access with default settings");
+				} catch (error: any) {
+					lastError = error;
+					console.warn("[Voice] Failed with default settings, trying with explicit constraints...");
+					
+					// Пробуем с явными ограничениями
+					try {
+						audioStream = await navigator.mediaDevices.getUserMedia({
+							video: false,
+							audio: {
+								echoCancellation: true,
+								noiseSuppression: true,
+								autoGainControl: true,
+								sampleRate: 48000,
+								channelCount: 1
+							}
+						});
+						console.log("[Voice] Successfully got microphone access with explicit constraints");
+					} catch (error2: any) {
+						lastError = error2;
+						console.error("[Voice] Failed with explicit constraints too:", error2);
+						throw lastError; // Бросаем последнюю ошибку
+					}
+				}
+				console.log("[Voice] Microphone access granted, tracks:", audioStream.getTracks().length);
+				const [track] = audioStream.getAudioTracks();
+				console.log("[Voice] Microphone track:", {
+					id: track.id,
+					kind: track.kind,
+					enabled: track.enabled,
+					muted: track.muted,
+					readyState: track.readyState,
+					label: track.label,
+					settings: track.getSettings ? track.getSettings() : null
+				});
+				this.setupMic(audioStream);
+				const sender = pc.addTrack(track);
 
-			this.mic = sender;
-			this.micTrack = track;
-			track.enabled = !this.owner.mute;
-			this.senders.add(sender);
-			console.log(sender);
+				this.mic = sender;
+				this.micTrack = track;
+				track.enabled = !this.owner.mute;
+				this.senders.add(sender);
+				console.log("[Voice] Microphone track added to peer connection:", sender);
+				
+				// Мониторим отправку аудио данных
+				setTimeout(async () => {
+					try {
+						const stats = await sender.getStats();
+						let outboundStats: any = null;
+						for (const [id, stat] of stats.entries()) {
+							if (stat.type === "outbound-rtp" && stat.kind === "audio") {
+								outboundStats = stat;
+								break;
+							}
+						}
+						if (outboundStats) {
+							console.log("[Voice] Outbound audio stats:", {
+								bytesSent: outboundStats.bytesSent,
+								packetsSent: outboundStats.packetsSent,
+								packetsLost: outboundStats.packetsLost,
+								trackEnabled: track.enabled,
+								trackMuted: track.muted,
+								readyState: track.readyState
+							});
+							if (outboundStats.bytesSent === 0) {
+								console.warn("[Voice] ⚠️ No audio data being sent! Check if microphone is working and track is enabled.");
+							} else {
+								console.log(`[Voice] ✅ Audio data is being sent: ${outboundStats.bytesSent} bytes, ${outboundStats.packetsSent} packets`);
+							}
+						} else {
+							console.warn("[Voice] ⚠️ Could not find outbound-rtp stats for audio - sender may not be transmitting");
+						}
+					} catch (error) {
+						console.error("[Voice] Failed to get sender stats:", error);
+					}
+				}, 3000);
+			} catch (error: any) {
+				console.error("[Voice] Failed to get microphone access:", error);
+				console.error("[Voice] Error name:", error?.name, "message:", error?.message, "stack:", error?.stack);
+				if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
+					console.warn("[Voice] Microphone permission denied - continuing without microphone (you can still hear others)");
+					console.warn("[Voice] Possible causes:");
+					console.warn("[Voice] 1. Browser blocked access (check browser settings)");
+					console.warn("[Voice] 2. System blocked access (check Windows/Mac privacy settings)");
+					console.warn("[Voice] 3. Microphone is being used by another application");
+					console.warn("[Voice] 4. WSL2 may not have direct access to Windows microphone");
+					console.warn("[Voice] 5. Request may need to be triggered by user interaction (click/touch)");
+					// Продолжаем без микрофона - пользователь все еще может слышать других
+					// Создаем transceiver для приема аудио, но не отправляем
+					pc.addTransceiver("audio", {
+						direction: "recvonly",
+					});
+				} else {
+					throw error;
+				}
+			}
 		} else {
 			pc.addTransceiver("audio", {
 				direction: "inactive",

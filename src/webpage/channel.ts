@@ -633,6 +633,10 @@ class Channel extends SnowFlake {
 	}
 	private unreadState(): boolean {
 		if (this.muted) return false;
+		if (!this.guild.member) {
+			// Member еще не загружен, считаем что нет непрочитанных
+			return false;
+		}
 		if (!this.hasPermission("VIEW_CHANNEL")) {
 			return false;
 		}
@@ -649,10 +653,14 @@ class Channel extends SnowFlake {
 	}
 
 	hasPermission(name: string, member = this.guild.member): boolean {
+		if (!member) {
+			// Member еще не загружен, возвращаем false для безопасности
+			return false;
+		}
 		if (member.isAdmin()) {
 			return true;
 		}
-		if (this.guild.member.commuicationDisabledLeft()) {
+		if (this.guild.member && this.guild.member.commuicationDisabledLeft()) {
 			const allowSet = new Set(["READ_MESSAGE_HISTORY", "VIEW_CHANNEL"]);
 			if (!allowSet.has(name)) {
 				return false;

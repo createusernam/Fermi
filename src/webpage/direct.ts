@@ -329,11 +329,15 @@ class Direct extends Guild {
 				);
 				const text = form.addTextInput(I18n.friends.addfriendpromt(), "username");
 				form.addPreprocessor((obj: any) => {
-					const [username, discriminator] = obj.username.split("#");
-					obj.username = username;
-					obj.discriminator = discriminator;
-					if (!discriminator) {
-						throw new FormError(text, I18n.friends.discnotfound());
+					// Поддерживаем как формат username#discriminator, так и просто username
+					const parts = obj.username.split("#");
+					obj.username = parts[0];
+					if (parts.length > 1) {
+						// Если пользователь указал discriminator явно, используем его
+						obj.discriminator = parts[1];
+					} else {
+						// Если дискриминатор не указан, не отправляем его (сервер будет искать по username)
+						delete obj.discriminator;
 					}
 				});
 				container.append(float.generateHTML());
