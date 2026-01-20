@@ -1,8 +1,8 @@
 [
 	{
 		"name": "My Instance",
-		"description": "Локальный инстанс Spacebar.",
-		"url": "http://localhost:3001",
+		"description": "VPS инстанс Spacebar.",
+		"url": "https://<VPS_DOMAIN>",
 		"display": true
 	}
 ]

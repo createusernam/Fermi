@@ -58,6 +58,33 @@ cd Fermi
 git checkout <DEPLOY_BRANCH из deploy.config>
 ```
 
+### Настройка instances.json
+
+Перед развертыванием обновите файл `src/webpage/instances.json` с вашим VPS доменом или IP:
+
+```bash
+cd /opt/fermi/Fermi
+nano src/webpage/instances.json
+```
+
+Замените `<VPS_DOMAIN>` на ваш реальный домен (например, `https://storytable.ru`) или IP адрес (например, `http://141.98.188.77:3001`):
+
+```json
+[
+	{
+		"name": "My Instance",
+		"description": "VPS инстанс Spacebar.",
+		"url": "https://your-domain.com",
+		"display": true
+	}
+]
+```
+
+**Важно**: 
+- Используйте `https://` если настроен SSL сертификат
+- Используйте `http://` с IP адресом, если SSL не настроен
+- URL должен указывать на Spacebar Server (порт 3001)
+
 ### Настройка прав на скрипт развертывания
 ```bash
 chmod +x /opt/fermi/Fermi/deploy.sh
