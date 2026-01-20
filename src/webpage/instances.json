@@ -1,7 +1,7 @@
 [
 	{
 		"name": "My Instance",
-		"description": "VPS инстанс Spacebar.",
+		"description": "Spacebar.",
 		"url": "https://<VPS_DOMAIN>",
 		"display": true
 	}

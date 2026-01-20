@@ -7,9 +7,9 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
-    # Если нужна связь с spacebar-server через Docker network, раскомментируйте:
+    # Если нужна  связь с spacebar-server через Docker network, раскомментируйте:
     # networks:
     #   - spacebar-network
     # networks:
     #   spacebar-network:
-    #     external: true
+    #     external: true 
