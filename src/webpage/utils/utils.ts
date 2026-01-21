@@ -483,6 +483,12 @@ export async function getInstanceInfo(str: string): Promise<InstanceInfo | null>
 	if (str.startsWith("http://") || str.startsWith("https://")) {
 		if (stringURLsMap.has(str)) {
 			const urls = stringURLsMap.get(str) as InstanceInfo;
+			// Проверяем и исправляем gateway URL, если нужно
+			if (urls.gateway && !urls.gateway.includes("/gateway")) {
+				const baseUrl = str.endsWith("/") ? str.slice(0, -1) : str;
+				urls.gateway = baseUrl.replace("http://", "ws://").replace("https://", "wss://") + "/gateway";
+				stringURLsMap.set(str, urls);
+			}
 			urls.value = str;
 			return urls;
 		}
@@ -496,11 +502,29 @@ export async function getInstanceInfo(str: string): Promise<InstanceInfo | null>
 		// Проверяем, есть ли уже информация в stringURLsMap для этого URL
 		if (stringURLsMap.has(url)) {
 			const urls = stringURLsMap.get(url) as InstanceInfo;
+			// Проверяем и исправляем gateway URL, если нужно
+			if (urls.gateway && !urls.gateway.includes("/gateway")) {
+				const baseUrl = url.endsWith("/") ? url.slice(0, -1) : url;
+				urls.gateway = baseUrl.replace("http://", "ws://").replace("https://", "wss://") + "/gateway";
+				stringURLsMap.set(url, urls);
+			}
 			urls.value = str;
 			return urls;
 		}
 		// Если нет, пытаемся загрузить через .well-known
 		return (await getapiurls(url)) as InstanceInfo;
+	}
+
+	// Защита от старых данных: если данные найдены по имени, но gateway неправильный,
+	// игнорируем их и пытаемся найти по URL через stringURLMap
+	if (stringURLsMap.has(str) && !str.startsWith("http://") && !str.startsWith("https://")) {
+		const urls = stringURLsMap.get(str) as InstanceInfo;
+		// Если gateway неправильный, это старые данные - игнорируем их
+		if (urls.gateway && !urls.gateway.includes("/gateway")) {
+			console.warn("[getInstanceInfo] Обнаружены старые данные по имени, игнорируем:", str);
+			// Удаляем старые данные
+			stringURLsMap.delete(str);
+		}
 	}
 
 	return null;

@@ -1008,8 +1008,15 @@ class InstancePicker implements OptionsElement<InstanceInfo | null> {
 			if (instance.url) {
 				stringURLMap.set(option.value, instance.url);
 				if (instance.urls) {
+					// Исправляем gateway URL, если он не содержит /gateway
+					const urls = { ...instance.urls };
+					if (urls.gateway && !urls.gateway.includes("/gateway")) {
+						// Извлекаем базовый URL из gateway (убираем протокол ws:// или wss://)
+						const baseUrl = instance.url.endsWith("/") ? instance.url.slice(0, -1) : instance.url;
+						urls.gateway = baseUrl.replace("http://", "ws://").replace("https://", "wss://") + "/gateway";
+					}
 					// Кэшируем только по URL, не по имени инстанса
-					stringURLsMap.set(instance.url, instance.urls);
+					stringURLsMap.set(instance.url, urls);
 				} else {
 					// Если есть url, но нет urls, строим urls на основе url
 					const baseUrl = instance.url.endsWith("/") ? instance.url.slice(0, -1) : instance.url;
@@ -1026,8 +1033,17 @@ class InstancePicker implements OptionsElement<InstanceInfo | null> {
 			} else if (instance.urls) {
 				// Если есть urls, но нет url, используем wellknown или api как ключ
 				const urlKey = instance.urls.wellknown || instance.urls.api || option.value;
+				// Исправляем gateway URL, если он не содержит /gateway
+				const urls = { ...instance.urls };
+				if (urls.gateway && !urls.gateway.includes("/gateway")) {
+					// Извлекаем базовый URL из wellknown или api
+					const baseUrl = (urls.wellknown || urls.api || "").replace(/\/api\/v\d+$/, "");
+					if (baseUrl) {
+						urls.gateway = baseUrl.replace("http://", "ws://").replace("https://", "wss://") + "/gateway";
+					}
+				}
 				// Кэшируем только по URL, не по имени инстанса
-				stringURLsMap.set(urlKey, instance.urls);
+				stringURLsMap.set(urlKey, urls);
 				// Также добавляем в stringURLMap для совместимости
 				if (instance.urls.api) {
 					stringURLMap.set(option.value, urlKey);
