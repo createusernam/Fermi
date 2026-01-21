@@ -69,11 +69,7 @@ if (window.location.pathname === "/" || window.location.pathname.startsWith("/in
 					if (instance.display === false) {
 						continue;
 					}
-					// Показывать только локальные инстансы (localhost)
-					const instanceUrl = instance.url || instance.urls?.api || "";
-					if (instanceUrl && !instanceUrl.includes("localhost") && !instanceUrl.includes("127.0.0.1")) {
-						continue;
-					}
+					// Показываем все инстансы с display: true или без поля display
 					const div = document.createElement("div");
 					div.classList.add("flexltr", "instance");
 					if (instance.image) {
