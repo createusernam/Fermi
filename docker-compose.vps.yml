@@ -7,6 +7,12 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    volumes:
+      # Монтируем instances.json, чтобы можно было обновлять без пересборки образа
+      - ./src/webpage/instances.json:/exec/dist/webpage/instances.json:ro
+    environment:
+      # Альтернативный способ: использовать переменную окружения для пути к instances.json
+      # - JANK_INSTANCES_PATH=/exec/dist/webpage/instances.json
     # Если нужна  связь с spacebar-server через Docker network, раскомментируйте:
     # networks:
     #   - spacebar-network
