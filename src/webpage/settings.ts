@@ -1018,7 +1018,8 @@ class InstancePicker implements OptionsElement<InstanceInfo | null> {
 						wellknown: baseUrl,
 						api: baseUrl + "/api/v9",
 						cdn: baseUrl,
-						gateway: baseUrl.replace("http://", "ws://").replace("https://", "wss://"),
+						// Gateway должен включать путь /gateway
+						gateway: baseUrl.replace("http://", "ws://").replace("https://", "wss://") + "/gateway",
 					};
 					stringURLsMap.set(instance.url, constructedUrls);
 					stringURLsMap.set(option.value, constructedUrls);
