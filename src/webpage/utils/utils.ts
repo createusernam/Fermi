@@ -428,20 +428,34 @@ export interface InstanceInfo extends InstanceUrls {
 
 export async function getapiurls(str: string): Promise<InstanceUrls | null> {
 	str = str.trim();
-	if (!str) return null;
+	if (!str) {
+		console.log("[getapiurls] Empty string, returning null");
+		return null;
+	}
 
 	console.info("Attempting to fetch .well-known's for", str);
 
 	// Override first:
+	console.log("[getapiurls] Checking getInstanceInfo for:", str);
 	let urls: InstanceUrls | null = await getInstanceInfo(str);
-	if (urls) return urls;
+	if (urls) {
+		console.log("[getapiurls] getInstanceInfo returned URLs:", urls);
+		return urls;
+	}
+	console.log("[getapiurls] getInstanceInfo returned null, trying getApiUrlsV2");
 
 	// Otherwise, fall back to looking it up...
 	try {
+		console.log("[getapiurls] Calling getApiUrlsV2 with:", str);
 		urls = await getApiUrlsV2(str);
-		if (!urls) throw new Error("meow");
+		if (!urls) {
+			console.log("[getapiurls] getApiUrlsV2 returned null, throwing error to try V1");
+			throw new Error("meow");
+		}
+		console.log("[getapiurls] getApiUrlsV2 returned URLs:", urls);
 		return urls;
-	} catch {
+	} catch (e) {
+		console.log("[getapiurls] getApiUrlsV2 failed, trying V1. Error:", e);
 		return await getApiUrlsV1(str);
 	}
 }
@@ -498,12 +512,22 @@ export async function getInstanceInfo(str: string): Promise<InstanceInfo | null>
 
 //region Well-Known v2
 export async function getApiUrlsV2(str: string): Promise<InstanceUrls | null> {
+	console.log("[getApiUrlsV2] Called with:", str);
 	if (!URL.canParse(str)) {
-		console.log("getApiUrlsV2:", str, "is not a parseable url");
+		console.log("[getApiUrlsV2] URL is not parseable:", str);
 		return null;
 	}
+	const wellKnownUrl = str + "/.well-known/spacebar/client";
+	console.log("[getApiUrlsV2] Fetching well-known from:", wellKnownUrl);
 	try {
-		const info = await fetch(str + "/.well-known/spacebar/client").then((r) => r.json());
+		console.log("[getApiUrlsV2] Starting fetch...");
+		const response = await fetch(wellKnownUrl);
+		console.log("[getApiUrlsV2] Response received. Status:", response.status, "OK:", response.ok);
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+		}
+		const info = await response.json();
+		console.log("[getApiUrlsV2] JSON parsed successfully:", info);
 		return {
 			admin: info.admin?.baseUrl,
 			api: info.api.baseUrl + "/api/v" + info.api.apiVersions.default,
@@ -512,6 +536,7 @@ export async function getApiUrlsV2(str: string): Promise<InstanceUrls | null> {
 			wellknown: str,
 		};
 	} catch (e) {
+		console.error("[getApiUrlsV2] Error fetching well-known:", e);
 		console.log("No .well-known v2 for", str, (e as Error).message);
 		return null;
 	}
