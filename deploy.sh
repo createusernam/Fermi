@@ -54,9 +54,9 @@ docker-compose -f docker-compose.vps.yml down || true
 docker stop "$CONTAINER_NAME" 2>/dev/null || true
 docker rm "$CONTAINER_NAME" 2>/dev/null || true
 
-# Собираем новый образ
+# Собираем новый образ (без кэша для гарантии актуального кода)
 echo "🔨 Собираем Docker образ..."
-docker build -t "${IMAGE_NAME}:latest" .
+docker build --no-cache -t "${IMAGE_NAME}:latest" .
 
 # Запускаем контейнер
 echo "▶️  Запускаем контейнер..."
