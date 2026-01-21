@@ -1008,9 +1008,8 @@ class InstancePicker implements OptionsElement<InstanceInfo | null> {
 			if (instance.url) {
 				stringURLMap.set(option.value, instance.url);
 				if (instance.urls) {
+					// Кэшируем только по URL, не по имени инстанса
 					stringURLsMap.set(instance.url, instance.urls);
-					// Также добавляем по имени для быстрого доступа
-					stringURLsMap.set(option.value, instance.urls);
 				} else {
 					// Если есть url, но нет urls, строим urls на основе url
 					const baseUrl = instance.url.endsWith("/") ? instance.url.slice(0, -1) : instance.url;
@@ -1021,13 +1020,14 @@ class InstancePicker implements OptionsElement<InstanceInfo | null> {
 						// Gateway должен включать путь /gateway
 						gateway: baseUrl.replace("http://", "ws://").replace("https://", "wss://") + "/gateway",
 					};
+					// Кэшируем только по URL, не по имени инстанса
 					stringURLsMap.set(instance.url, constructedUrls);
-					stringURLsMap.set(option.value, constructedUrls);
 				}
 			} else if (instance.urls) {
 				// Если есть urls, но нет url, используем wellknown или api как ключ
 				const urlKey = instance.urls.wellknown || instance.urls.api || option.value;
-				stringURLsMap.set(option.value, instance.urls);
+				// Кэшируем только по URL, не по имени инстанса
+				stringURLsMap.set(urlKey, instance.urls);
 				// Также добавляем в stringURLMap для совместимости
 				if (instance.urls.api) {
 					stringURLMap.set(option.value, urlKey);

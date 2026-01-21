@@ -479,61 +479,23 @@ export async function getInstanceInfo(str: string): Promise<InstanceInfo | null>
 		stringURLsMap,
 	});
 
-	// Сначала проверяем stringURLsMap, так как там может быть полная информация без необходимости запросов
-	if (stringURLsMap.has(str)) {
-		console.error(
-			"WE GOT URL->INSTANCE MAP ENTRY FOR ",
-			str,
-			"!!!!!!!!!!11",
-			stringURLsMap.get(str),
-		);
-		const urls = stringURLsMap.get(str) as InstanceInfo;
-		console.log("[getInstanceInfo] Проверяем Gateway URL:", urls.gateway, "содержит /gateway?", urls.gateway?.includes("/gateway"));
-		// Проверяем, что Gateway URL содержит путь /gateway
-		// Если нет, обновляем данные из well-known endpoint
-		if (urls.gateway && !urls.gateway.includes("/gateway")) {
-			console.log("[getInstanceInfo] ⚠️ Gateway URL не содержит /gateway, обновляем из well-known:", urls.gateway);
-			// Удаляем старые данные из кэша
-			stringURLsMap.delete(str);
-			// Загружаем заново из well-known
-			console.log("[getInstanceInfo] Загружаем fresh URLs из well-known для:", str);
-			const freshUrls = await getapiurls(str);
-			if (freshUrls) {
-				console.log("[getInstanceInfo] ✅ Получены fresh URLs:", freshUrls);
-				stringURLsMap.set(str, freshUrls as InstanceInfo);
-				(freshUrls as InstanceInfo).value = str;
-				return freshUrls as InstanceInfo;
-			} else {
-				console.error("[getInstanceInfo] ❌ Не удалось загрузить fresh URLs");
-			}
-		} else {
-			console.log("[getInstanceInfo] Gateway URL правильный или отсутствует, используем кэш");
+	// Если str - это URL (начинается с http:// или https://), проверяем напрямую в stringURLsMap
+	if (str.startsWith("http://") || str.startsWith("https://")) {
+		if (stringURLsMap.has(str)) {
+			const urls = stringURLsMap.get(str) as InstanceInfo;
+			urls.value = str;
+			return urls;
 		}
-		urls.value = str;
-		return urls;
+		// Если не найдено, пытаемся загрузить через .well-known
+		return (await getapiurls(str)) as InstanceInfo;
 	}
 
-	// Если не найдено в stringURLsMap, проверяем stringURLMap
+	// Если str - это имя инстанса, сначала находим URL через stringURLMap
 	if (stringURLMap.has(str)) {
-		console.error("OOH WE GOT STRING->URL MAP ENTRY FOR", str, "!!!!", stringURLMap.get(str));
 		const url = stringURLMap.get(str)!;
 		// Проверяем, есть ли уже информация в stringURLsMap для этого URL
 		if (stringURLsMap.has(url)) {
 			const urls = stringURLsMap.get(url) as InstanceInfo;
-			// Проверяем, что Gateway URL содержит путь /gateway
-			// Если нет, обновляем данные из well-known endpoint
-			if (urls.gateway && !urls.gateway.includes("/gateway")) {
-				console.log("[getInstanceInfo] Gateway URL не содержит /gateway, обновляем из well-known:", urls.gateway);
-				// Удаляем старые данные из кэша
-				stringURLsMap.delete(url);
-				// Загружаем заново из well-known
-				const freshUrls = await getapiurls(url);
-				if (freshUrls) {
-					stringURLsMap.set(url, freshUrls as InstanceInfo);
-					(freshUrls as InstanceInfo).value = str;
-					return freshUrls as InstanceInfo;
-				}
-			}
 			urls.value = str;
 			return urls;
 		}
