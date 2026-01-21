@@ -10,7 +10,7 @@ services:
     volumes:
       # Монтируем instances.json, чтобы можно было обновлять без пересборки образа
       - ./src/webpage/instances.json:/exec/dist/webpage/instances.json:ro
-    environment:
+    environment: {}
       # Альтернативный способ: использовать переменную окружения для пути к instances.json
       # - JANK_INSTANCES_PATH=/exec/dist/webpage/instances.json
     # Если нужна  связь с spacebar-server через Docker network, раскомментируйте:
