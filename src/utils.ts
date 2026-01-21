@@ -18,21 +18,28 @@ export async function getApiUrls(
 
 	if (check) {
 		let valid = false;
+		console.log(`[getApiUrls] Checking URL: ${url}, Instances:`, instances);
 		for (const instance of instances) {
 			const urlstr = instance.url || instance.urls?.api;
 			if (!urlstr) {
+				console.log(`[getApiUrls] Skipping instance without URL:`, instance);
 				continue;
 			}
 			try {
-				if (new URL(urlstr).host === new URL(url).host) {
+				const instanceHost = new URL(urlstr).host;
+				const inputHost = new URL(url).host;
+				console.log(`[getApiUrls] Comparing hosts: "${instanceHost}" === "${inputHost}"`);
+				if (instanceHost === inputHost) {
 					valid = true;
+					console.log(`[getApiUrls] Host match found!`);
 					break;
 				}
 			} catch (e) {
-				//console.log(e);
+				console.error(`[getApiUrls] Error parsing URL:`, e, urlstr, url);
 			}
 		}
 		if (!valid) {
+			console.error(`[getApiUrls] No valid instance found for URL: ${url}`);
 			throw new Error("Invalid instance");
 		}
 	}
@@ -99,14 +106,25 @@ interface WellKnownV2 {
 }
 
 export async function getApiUrlsV2(url: string): Promise<ApiUrls | null> {
-	const info: WellKnownV2 = await fetch(`${url}.well-known/spacebar/client`).then((res) =>
-		res.json(),
-	);
-	return {
-		api: info.api.baseUrl + "/api/v" + info.api.apiVersions.default,
-		gateway: info.gateway.baseUrl,
-		cdn: info.cdn.baseUrl,
-		wellknown: url,
-	};
+	const wellKnownUrl = `${url}.well-known/spacebar/client`;
+	console.log(`[getApiUrlsV2] Fetching well-known from: ${wellKnownUrl}`);
+	try {
+		const response = await fetch(wellKnownUrl);
+		console.log(`[getApiUrlsV2] Response status: ${response.status}, ok: ${response.ok}`);
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+		}
+		const info: WellKnownV2 = await response.json();
+		console.log(`[getApiUrlsV2] Well-known data received:`, info);
+		return {
+			api: info.api.baseUrl + "/api/v" + info.api.apiVersions.default,
+			gateway: info.gateway.baseUrl,
+			cdn: info.cdn.baseUrl,
+			wellknown: url,
+		};
+	} catch (e) {
+		console.error(`[getApiUrlsV2] Error fetching well-known:`, e);
+		throw e;
+	}
 }
 //endregion
