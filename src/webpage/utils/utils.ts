@@ -488,6 +488,20 @@ export async function getInstanceInfo(str: string): Promise<InstanceInfo | null>
 			stringURLsMap.get(str),
 		);
 		const urls = stringURLsMap.get(str) as InstanceInfo;
+		// Проверяем, что Gateway URL содержит путь /gateway
+		// Если нет, обновляем данные из well-known endpoint
+		if (urls.gateway && !urls.gateway.includes("/gateway")) {
+			console.log("[getInstanceInfo] Gateway URL не содержит /gateway, обновляем из well-known:", urls.gateway);
+			// Удаляем старые данные из кэша
+			stringURLsMap.delete(str);
+			// Загружаем заново из well-known
+			const freshUrls = await getapiurls(str);
+			if (freshUrls) {
+				stringURLsMap.set(str, freshUrls as InstanceInfo);
+				(freshUrls as InstanceInfo).value = str;
+				return freshUrls as InstanceInfo;
+			}
+		}
 		urls.value = str;
 		return urls;
 	}
@@ -499,6 +513,20 @@ export async function getInstanceInfo(str: string): Promise<InstanceInfo | null>
 		// Проверяем, есть ли уже информация в stringURLsMap для этого URL
 		if (stringURLsMap.has(url)) {
 			const urls = stringURLsMap.get(url) as InstanceInfo;
+			// Проверяем, что Gateway URL содержит путь /gateway
+			// Если нет, обновляем данные из well-known endpoint
+			if (urls.gateway && !urls.gateway.includes("/gateway")) {
+				console.log("[getInstanceInfo] Gateway URL не содержит /gateway, обновляем из well-known:", urls.gateway);
+				// Удаляем старые данные из кэша
+				stringURLsMap.delete(url);
+				// Загружаем заново из well-known
+				const freshUrls = await getapiurls(url);
+				if (freshUrls) {
+					stringURLsMap.set(url, freshUrls as InstanceInfo);
+					(freshUrls as InstanceInfo).value = str;
+					return freshUrls as InstanceInfo;
+				}
+			}
 			urls.value = str;
 			return urls;
 		}
