@@ -488,19 +488,26 @@ export async function getInstanceInfo(str: string): Promise<InstanceInfo | null>
 			stringURLsMap.get(str),
 		);
 		const urls = stringURLsMap.get(str) as InstanceInfo;
+		console.log("[getInstanceInfo] Проверяем Gateway URL:", urls.gateway, "содержит /gateway?", urls.gateway?.includes("/gateway"));
 		// Проверяем, что Gateway URL содержит путь /gateway
 		// Если нет, обновляем данные из well-known endpoint
 		if (urls.gateway && !urls.gateway.includes("/gateway")) {
-			console.log("[getInstanceInfo] Gateway URL не содержит /gateway, обновляем из well-known:", urls.gateway);
+			console.log("[getInstanceInfo] ⚠️ Gateway URL не содержит /gateway, обновляем из well-known:", urls.gateway);
 			// Удаляем старые данные из кэша
 			stringURLsMap.delete(str);
 			// Загружаем заново из well-known
+			console.log("[getInstanceInfo] Загружаем fresh URLs из well-known для:", str);
 			const freshUrls = await getapiurls(str);
 			if (freshUrls) {
+				console.log("[getInstanceInfo] ✅ Получены fresh URLs:", freshUrls);
 				stringURLsMap.set(str, freshUrls as InstanceInfo);
 				(freshUrls as InstanceInfo).value = str;
 				return freshUrls as InstanceInfo;
+			} else {
+				console.error("[getInstanceInfo] ❌ Не удалось загрузить fresh URLs");
 			}
+		} else {
+			console.log("[getInstanceInfo] Gateway URL правильный или отсутствует, используем кэш");
 		}
 		urls.value = str;
 		return urls;
