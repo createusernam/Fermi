@@ -110,7 +110,10 @@ export class Specialuser {
 		apistring = apistring.replace(/\/(v\d+\/?)?$/, "") + "/v9";
 		this.serverurls.api = apistring;
 		this.serverurls.cdn = new URL(json.serverurls.cdn).toString().replace(/\/$/, "");
-		this.serverurls.gateway = new URL(json.serverurls.gateway).toString().replace(/\/$/, "");
+		this.serverurls.gateway = normalizeGatewayBaseUrl(
+			new URL(json.serverurls.gateway).toString().replace(/\/$/, ""),
+			this.serverurls.api,
+		);
 		this.serverurls.wellknown = new URL(json.serverurls.wellknown).toString().replace(/\/$/, "");
 		this.email = json.email;
 		this.token = json.token;
@@ -426,6 +429,34 @@ export interface InstanceInfo extends InstanceUrls {
 	value: string;
 }
 
+function normalizeGatewayBaseUrl(gateway: string, instanceOriginHint?: string): string {
+	let instanceHost: string | undefined;
+	if (instanceOriginHint && URL.canParse(instanceOriginHint)) {
+		try {
+			instanceHost = new URL(instanceOriginHint).host;
+		} catch {
+			// ignore
+		}
+	}
+
+	try {
+		const u = new URL(gateway);
+		// Many deployments proxy gateway at /gateway (nginx), but some configs mistakenly publish just wss://host
+		if ((u.pathname === "" || u.pathname === "/") && (!instanceHost || u.host === instanceHost)) {
+			u.pathname = "/gateway";
+		}
+		return u.toString().replace(/\/$/, "");
+	} catch {
+		// If gateway isn't a URL, try to derive it from instance origin (http(s) -> ws(s))
+		if (instanceOriginHint && (instanceOriginHint.startsWith("http://") || instanceOriginHint.startsWith("https://"))) {
+			const base = instanceOriginHint.replace(/\/$/, "");
+			const wsOrigin = base.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+			return (wsOrigin + "/gateway").replace(/\/$/, "");
+		}
+		return gateway;
+	}
+}
+
 export async function getapiurls(str: string): Promise<InstanceUrls | null> {
 	str = str.trim();
 	if (!str) {
@@ -484,11 +515,8 @@ export async function getInstanceInfo(str: string): Promise<InstanceInfo | null>
 		if (stringURLsMap.has(str)) {
 			const urls = stringURLsMap.get(str) as InstanceInfo;
 			// Проверяем и исправляем gateway URL, если нужно
-			if (urls.gateway && !urls.gateway.includes("/gateway")) {
-				const baseUrl = str.endsWith("/") ? str.slice(0, -1) : str;
-				urls.gateway = baseUrl.replace("http://", "ws://").replace("https://", "wss://") + "/gateway";
-				stringURLsMap.set(str, urls);
-			}
+			if (urls.gateway) urls.gateway = normalizeGatewayBaseUrl(urls.gateway, str);
+			stringURLsMap.set(str, urls);
 			urls.value = str;
 			return urls;
 		}
@@ -503,11 +531,8 @@ export async function getInstanceInfo(str: string): Promise<InstanceInfo | null>
 		if (stringURLsMap.has(url)) {
 			const urls = stringURLsMap.get(url) as InstanceInfo;
 			// Проверяем и исправляем gateway URL, если нужно
-			if (urls.gateway && !urls.gateway.includes("/gateway")) {
-				const baseUrl = url.endsWith("/") ? url.slice(0, -1) : url;
-				urls.gateway = baseUrl.replace("http://", "ws://").replace("https://", "wss://") + "/gateway";
-				stringURLsMap.set(url, urls);
-			}
+			if (urls.gateway) urls.gateway = normalizeGatewayBaseUrl(urls.gateway, url);
+			stringURLsMap.set(url, urls);
 			urls.value = str;
 			return urls;
 		}
@@ -552,7 +577,7 @@ export async function getApiUrlsV2(str: string): Promise<InstanceUrls | null> {
 		return {
 			admin: info.admin?.baseUrl,
 			api: info.api.baseUrl + "/api/v" + info.api.apiVersions.default,
-			gateway: info.gateway.baseUrl,
+			gateway: normalizeGatewayBaseUrl(info.gateway.baseUrl, info.api.baseUrl ?? str),
 			cdn: info.cdn.baseUrl,
 			wellknown: str,
 		};
@@ -633,7 +658,7 @@ export async function getApiUrlsV1(str: string): Promise<InstanceUrls | null> {
 		const apiurl = new URL(info.apiEndpoint);
 		urls = {
 			api: apiurl.origin + appendApi(apiurl.pathname),
-			gateway: info.gateway,
+			gateway: normalizeGatewayBaseUrl(info.gateway, apiurl.origin),
 			cdn: info.cdn,
 			wellknown: str,
 		};

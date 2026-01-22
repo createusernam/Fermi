@@ -7,6 +7,32 @@ interface ApiUrls {
 	wellknown: string;
 }
 
+function normalizeGatewayBaseUrl(gateway: string, instanceOriginHint?: string): string {
+	let instanceHost: string | undefined;
+	if (instanceOriginHint && URL.canParse(instanceOriginHint)) {
+		try {
+			instanceHost = new URL(instanceOriginHint).host;
+		} catch {
+			// ignore
+		}
+	}
+
+	try {
+		const u = new URL(gateway);
+		if ((u.pathname === "" || u.pathname === "/") && (!instanceHost || u.host === instanceHost)) {
+			u.pathname = "/gateway";
+		}
+		return u.toString().replace(/\/$/, "");
+	} catch {
+		if (instanceOriginHint && (instanceOriginHint.startsWith("http://") || instanceOriginHint.startsWith("https://"))) {
+			const base = instanceOriginHint.replace(/\/$/, "");
+			const wsOrigin = base.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+			return (wsOrigin + "/gateway").replace(/\/$/, "");
+		}
+		return gateway;
+	}
+}
+
 export async function getApiUrls(
 	url: string,
 	instances: instance[],
@@ -76,7 +102,7 @@ export async function getApiUrlsV1(url: string): Promise<ApiUrls | null> {
 	).then((res) => res.json());
 	return {
 		api: policies.apiEndpoint,
-		gateway: policies.gateway,
+		gateway: normalizeGatewayBaseUrl(policies.gateway, apiUrl.origin),
 		cdn: policies.cdn,
 		wellknown: url,
 	};
@@ -118,7 +144,7 @@ export async function getApiUrlsV2(url: string): Promise<ApiUrls | null> {
 		console.log(`[getApiUrlsV2] Well-known data received:`, info);
 		return {
 			api: info.api.baseUrl + "/api/v" + info.api.apiVersions.default,
-			gateway: info.gateway.baseUrl,
+			gateway: normalizeGatewayBaseUrl(info.gateway.baseUrl, info.api.baseUrl ?? url),
 			cdn: info.cdn.baseUrl,
 			wellknown: url,
 		};
