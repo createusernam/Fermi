@@ -1350,7 +1350,7 @@ a=rtcp-mux\r`;
 					console.warn("[Voice] 1. Browser blocked access (check browser settings)");
 					console.warn("[Voice] 2. System blocked access (check Windows/Mac privacy settings)");
 					console.warn("[Voice] 3. Microphone is being used by another application");
-					console.warn("[Voice] 4. WSL2 may not have direct access to Windows microphone");
+					console.warn("[Voice] 4. Virtualization/container environments may not have direct access to microphone");
 					console.warn("[Voice] 5. Request may need to be triggered by user interaction (click/touch)");
 					// Продолжаем без микрофона - пользователь все еще может слышать других
 					// Создаем transceiver для приема аудио, но не отправляем
