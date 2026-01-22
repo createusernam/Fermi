@@ -1629,8 +1629,11 @@ a=rtcp-mux\r`;
 			}
 		}
 
+		// Определяем протокол: если endpoint содержит IP адрес, используем WS, иначе WSS/WS в зависимости от secure
+		const isIPAddress = /^\d+\.\d+\.\d+\.\d+/.test(this.urlobj.url.split(':')[0]);
+		const protocol = (isIPAddress ? "ws://" : (this.owner.secure ? "wss://" : "ws://"));
 		const ws = new WebSocket(
-			((this.owner.secure ? "wss://" : "ws://") + this.urlobj.url) as string,
+			(protocol + this.urlobj.url) as string,
 		);
 		this.ws = ws;
 		ws.onclose = () => {
