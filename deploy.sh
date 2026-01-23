@@ -35,13 +35,15 @@ if [ ! -d "$CLIENT_DIR/.git" ]; then
     git clone "$GIT_REPO" Fermi-temp
     mv Fermi-temp/* Fermi-temp/.git "$CLIENT_DIR/" 2>/dev/null || true
     rm -rf Fermi-temp
-else
-    echo "📥 Обновляем репозиторий..."
-    cd "$CLIENT_DIR"
-    git fetch origin
 fi
 
 cd "$CLIENT_DIR"
+
+# Обновляем репозиторий (код приложения)
+# Примечание: сам deploy.sh не обновится, если уже запущен. 
+# Для обновления deploy.sh выполните: git fetch origin && git pull origin $BRANCH
+echo "📥 Обновляем репозиторий..."
+git fetch origin
 
 # Переключаемся на нужную ветку
 echo "🔀 Переключаемся на ветку $BRANCH..."
