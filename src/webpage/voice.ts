@@ -346,6 +346,8 @@ class Voice {
 	interval: NodeJS.Timeout = 0 as unknown as NodeJS.Timeout;
 	time: number = 0;
 	seq: number = 0;
+	analyser?: AnalyserNode;
+	analyserInterval?: NodeJS.Timeout;
 	sendAlive() {
 		if (this.ws) {
 			this.ws.send(JSON.stringify({op: 3, d: 10}));
@@ -503,8 +505,10 @@ class Voice {
 		const videoUsers = [...this.vidusers];
 		console.warn(audioUsers);
 
+		// Извлекаем домен из endpoint (убираем путь /webrtc если есть)
+		const endpointHost = this.urlobj.url?.split('/')[0] || '127.0.0.1';
 		let build = `v=0\r
-o=- 1420070400000 0 IN IP4 ${this.urlobj.url}\r
+o=- 1420070400000 0 IN IP4 ${endpointHost}\r
 s=-\r
 t=0 0\r
 a=msid-semantic: WMS *\r
@@ -685,7 +689,11 @@ a=rtcp-mux\r`;
 				console.log(this.ssrcMap);
 			});
 			pc.onicecandidate = (e) => {
-				console.warn(e.candidate);
+				if (e.candidate) {
+					console.log("[Voice] ICE candidate:", e.candidate.candidate, "type:", e.candidate.type);
+				} else {
+					console.log("[Voice] ICE candidate gathering complete");
+				}
 			};
 
 			pc.addEventListener("signalingstatechange", async () => {
@@ -741,22 +749,38 @@ a=rtcp-mux\r`;
 			pc.addEventListener("iceconnectionstatechange", async () => {
 				logState("iceconnectionstatechange", pc.iceConnectionState);
 				console.log("[Voice] ICE connection state changed to:", pc.iceConnectionState);
+				console.log("[Voice] Connection state:", pc.connectionState);
+				console.log("[Voice] Signaling state:", pc.signalingState);
 
 				detectDone();
 				if (pc.iceConnectionState === "checking") {
 					await sendOffer();
 				}
-				if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
-					console.error("[Voice] ICE connection failed! State:", pc.iceConnectionState);
-					console.error("[Voice] Connection state:", pc.connectionState);
-					// Попытка переподключения
+				if (pc.iceConnectionState === "failed") {
+					console.error("[Voice] ICE connection failed! Attempting to restart...");
 					try {
-						console.log("[Voice] Attempting to restart ICE...");
 						await pc.restartIce();
 						console.log("[Voice] ICE restart initiated");
 					} catch (error) {
 						console.error("[Voice] Failed to restart ICE:", error);
 					}
+				}
+				// disconnected может быть временным состоянием при переключении candidates
+				// не перезапускаем ICE сразу, даем время на восстановление
+				if (pc.iceConnectionState === "disconnected") {
+					console.warn("[Voice] ICE connection disconnected (may recover)");
+					// Ждем немного перед перезапуском
+					setTimeout(async () => {
+						if (pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "failed") {
+							console.error("[Voice] ICE still disconnected after timeout, attempting restart...");
+							try {
+								await pc.restartIce();
+								console.log("[Voice] ICE restart initiated after timeout");
+							} catch (error) {
+								console.error("[Voice] Failed to restart ICE:", error);
+							}
+						}
+					}, 3000);
 				}
 			});
 		}
@@ -849,36 +873,48 @@ a=rtcp-mux\r`;
 		try {
 			const audioContext = new AudioContext();
 			console.log("[Voice] setupMic: AudioContext created:", audioContext.state);
-			const analyser = audioContext.createAnalyser();
+			this.analyser = audioContext.createAnalyser();
 			const microphone = audioContext.createMediaStreamSource(audioStream);
 
-			analyser.smoothingTimeConstant = 0;
-			analyser.fftSize = 32;
+			this.analyser.smoothingTimeConstant = 0;
+			this.analyser.fftSize = 32;
 
-			microphone.connect(analyser);
+			microphone.connect(this.analyser);
 			console.log("[Voice] setupMic: Microphone connected to analyser");
 		} catch (error: any) {
 			console.error("[Voice] setupMic error:", error);
 			console.error("[Voice] setupMic error name:", error?.name, "message:", error?.message);
 			// Продолжаем без анализатора - это не критично для работы голосовой связи
+			this.analyser = undefined;
 		}
 		const array = new Float32Array(1);
-		const interval = setInterval(() => {
+		this.analyserInterval = setInterval(() => {
 			if (!this.ws) {
-				clearInterval(interval);
-			}
-			analyser.getFloatFrequencyData(array);
-			const value = array[0] + 65;
-			if (value < 0) {
-				if (this.speaking) {
-					this.speaking = false;
-					this.sendSpeaking();
-					console.log("not speaking");
+				if (this.analyserInterval) {
+					clearInterval(this.analyserInterval);
+					this.analyserInterval = undefined;
 				}
-			} else if (!this.speaking) {
-				console.log("speaking");
-				this.speaking = true;
-				this.sendSpeaking();
+				return;
+			}
+			if (!this.analyser) {
+				return; // Анализатор не создан, пропускаем
+			}
+			try {
+				this.analyser.getFloatFrequencyData(array);
+				const value = array[0] + 65;
+				if (value < 0) {
+					if (this.speaking) {
+						this.speaking = false;
+						this.sendSpeaking();
+						console.log("not speaking");
+					}
+				} else if (!this.speaking) {
+					console.log("speaking");
+					this.speaking = true;
+					this.sendSpeaking();
+				}
+			} catch (error) {
+				console.error("[Voice] Error getting frequency data:", error);
 			}
 		}, 500);
 	}
@@ -1193,13 +1229,36 @@ a=rtcp-mux\r`;
 				const audioElement = new Audio();
 				audioElement.srcObject = media;
 				audioElement.autoplay = true;
+				audioElement.volume = 1.0; // Убеждаемся, что громкость на максимуме
+				
+				// Обработчики событий для диагностики
+				audioElement.addEventListener("loadedmetadata", () => {
+					console.log("[Voice] Audio element metadata loaded");
+				});
+				audioElement.addEventListener("canplay", () => {
+					console.log("[Voice] Audio element can play");
+				});
+				audioElement.addEventListener("playing", () => {
+					console.log("[Voice] Audio element is playing");
+				});
+				audioElement.addEventListener("pause", () => {
+					console.warn("[Voice] Audio element paused");
+				});
+				audioElement.addEventListener("error", (e) => {
+					console.error("[Voice] Audio element error:", e);
+				});
 				
 				// Пытаемся воспроизвести (может требовать user gesture)
 				audioElement.play().then(() => {
 					console.log("[Voice] Audio element playing successfully");
 				}).catch((playError: any) => {
 					console.warn("[Voice] Audio element play() failed (may need user interaction):", playError);
-					// Продолжаем - MediaStreamSource может работать без Audio элемента
+					// Пробуем еще раз через небольшую задержку
+					setTimeout(() => {
+						audioElement.play().catch((e) => {
+							console.error("[Voice] Audio element play() retry failed:", e);
+						});
+					}, 1000);
 				});
 				
 				ss.connect(context.destination);
@@ -1308,6 +1367,17 @@ a=rtcp-mux\r`;
 				track.enabled = !this.owner.mute;
 				this.senders.add(sender);
 				console.log("[Voice] Microphone track added to peer connection:", sender);
+				
+				// Мониторим состояние трека
+				track.addEventListener("ended", () => {
+					console.warn("[Voice] Microphone track ended");
+				});
+				track.addEventListener("mute", () => {
+					console.warn("[Voice] Microphone track muted");
+				});
+				track.addEventListener("unmute", () => {
+					console.log("[Voice] Microphone track unmuted");
+				});
 				
 				// Мониторим отправку аудио данных
 				setTimeout(async () => {
@@ -1700,6 +1770,11 @@ a=rtcp-mux\r`;
 		this.micTrack?.stop();
 		this.micTrack = undefined;
 		this.mic = undefined;
+		if (this.analyserInterval) {
+			clearInterval(this.analyserInterval);
+			this.analyserInterval = undefined;
+		}
+		this.analyser = undefined;
 		this.off = undefined;
 		this.counter = undefined;
 		this.offer = undefined;
