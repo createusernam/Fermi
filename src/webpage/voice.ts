@@ -1157,6 +1157,13 @@ a=rtcp-mux\r`;
 		this.status = "makingOffer";
 		const pc = new RTCPeerConnection({
 			bundlePolicy: "max-bundle",
+			iceServers: [
+				// STUN сервер для определения публичного IP через NAT
+				{ urls: "stun:stun.l.google.com:19302" },
+				{ urls: "stun:stun1.l.google.com:19302" },
+				// Если нужен TURN (для обхода строгих NAT), добавьте свой TURN сервер:
+				// { urls: "turn:your-turn-server.com:3478", username: "user", credential: "pass" }
+			],
 		});
 		pc.ontrack = async (e) => {
 			this.status = "done";
