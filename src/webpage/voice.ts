@@ -505,8 +505,9 @@ class Voice {
 		const videoUsers = [...this.vidusers];
 		console.warn(audioUsers);
 
-		// Извлекаем домен из endpoint (убираем путь /webrtc если есть)
-		const endpointHost = this.urlobj.url?.split('/')[0] || '127.0.0.1';
+		// Для строки o= в SDP используем 127.0.0.1 (не критично для ICE, но лучше использовать IP)
+		// Реальный IP для соединения берется из кандидатов сервера
+		const endpointHost = '127.0.0.1';
 		let build = `v=0\r
 o=- 1420070400000 0 IN IP4 ${endpointHost}\r
 s=-\r
